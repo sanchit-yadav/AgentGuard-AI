@@ -1,0 +1,2 @@
+# infrastructure/
+This directory will contain Docker Compose files, container definitions, and deployment manifests.

@@ -1,0 +1,3 @@
+# sample_agents/
+This directory will contain reference agent implementations for testing and benchmarking,
+including the MVP Customer Support Agent (with get_order_details, get_customer_details, create_refund tools).

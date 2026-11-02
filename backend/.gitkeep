@@ -1,0 +1,3 @@
+# backend/
+This directory will contain the FastAPI modular monolith backend service.
+See docs/SYSTEM_ARCHITECTURE.md for directory layout.
