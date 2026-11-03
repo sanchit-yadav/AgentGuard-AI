@@ -15,10 +15,17 @@ from typing import Any
 # Regular expressions for detecting and scrubbing sensitive data
 SENSITIVE_PATTERNS = [
     re.compile(r"(bearer\s+)[a-zA-Z0-9_\-\.]{15,}", re.IGNORECASE),
-    re.compile(r"(api[_-]?key[\"']?\s*[:=]\s*[\"']?)[a-zA-Z0-9_\-\.]{16,}([\"']?)", re.IGNORECASE),
+    re.compile(
+        r"(api[_-]?key[\"']?\s*[:=]\s*[\"']?)[a-zA-Z0-9_\-\.]{16,}([\"']?)",
+        re.IGNORECASE,
+    ),
     re.compile(r"(password[\"']?\s*[:=]\s*[\"']?)[^\"'\s,]{6,}([\"']?)", re.IGNORECASE),
-    re.compile(r"(secret[_-]?key[\"']?\s*[:=]\s*[\"']?)[^\"'\s,]{16,}([\"']?)", re.IGNORECASE),
-    re.compile(r"(token[\"']?\s*[:=]\s*[\"']?)[a-zA-Z0-9_\-\.]{16,}([\"']?)", re.IGNORECASE),
+    re.compile(
+        r"(secret[_-]?key[\"']?\s*[:=]\s*[\"']?)[^\"'\s,]{16,}([\"']?)", re.IGNORECASE
+    ),
+    re.compile(
+        r"(token[\"']?\s*[:=]\s*[\"']?)[a-zA-Z0-9_\-\.]{16,}([\"']?)", re.IGNORECASE
+    ),
     re.compile(r"(://[^:\s@]+:)[^@\s/]+(@)", re.IGNORECASE),
 ]
 
@@ -86,10 +93,27 @@ class JSONFormatter(logging.Formatter):
 
         # Include custom extra fields if attached to record
         standard_attrs = {
-            "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
-            "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-            "created", "msecs", "relativeCreated", "thread", "threadName",
-            "processName", "process", "message",
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "message",
         }
         extras = {k: v for k, v in record.__dict__.items() if k not in standard_attrs}
         if extras:

@@ -102,7 +102,9 @@ def test_logging_pipeline_sanitizes_live_log_records() -> None:
     test_logger.addHandler(handler)
     test_logger.setLevel(logging.INFO)
 
-    test_logger.info("Agent dispatched request with Bearer secret-agent-token-987654321")
+    test_logger.info(
+        "Agent dispatched request with Bearer secret-agent-token-987654321"
+    )
 
     output = stream.getvalue().strip()
     parsed = json.loads(output)

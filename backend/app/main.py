@@ -7,12 +7,14 @@ and root health probe endpoints.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
+from app.core.database import check_database_health, close_db
 from app.core.logging import get_logger, setup_logging
+from app.core.redis import check_redis_health, close_redis
 
 logger = get_logger(__name__)
 
@@ -21,6 +23,17 @@ class HealthCheckResponse(BaseModel):
     """Payload returned by the process liveness probe."""
 
     status: str
+    app: str
+    version: str
+    environment: str
+
+
+class ReadinessCheckResponse(BaseModel):
+    """Payload returned by the external dependency readiness probe."""
+
+    status: str
+    database: str
+    redis: str
     app: str
     version: str
     environment: str
@@ -41,7 +54,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         },
     )
     yield
-    logger.info("AgentGuard AI backend shutting down")
+    logger.info("AgentGuard AI backend shutting down: disposing resource pools")
+    await close_db()
+    await close_redis()
+    logger.info("AgentGuard AI backend shutdown complete")
 
 
 def create_application(settings: Settings | None = None) -> FastAPI:
@@ -56,9 +72,15 @@ def create_application(settings: Settings | None = None) -> FastAPI:
             "AgentGuard AI — Autonomous AI Agent Testing, Evaluation & "
             "Observability Platform API"
         ),
-        docs_url=f"{settings.api_v1_prefix}/docs" if settings.environment != "production" else None,
-        redoc_url=f"{settings.api_v1_prefix}/redoc" if settings.environment != "production" else None,
-        openapi_url=f"{settings.api_v1_prefix}/openapi.json" if settings.environment != "production" else None,
+        docs_url=f"{settings.api_v1_prefix}/docs"
+        if settings.environment != "production"
+        else None,
+        redoc_url=f"{settings.api_v1_prefix}/redoc"
+        if settings.environment != "production"
+        else None,
+        openapi_url=f"{settings.api_v1_prefix}/openapi.json"
+        if settings.environment != "production"
+        else None,
         lifespan=lifespan,
     )
 
@@ -85,6 +107,38 @@ def create_application(settings: Settings | None = None) -> FastAPI:
     async def liveness_probe() -> HealthCheckResponse:
         return HealthCheckResponse(
             status="alive",
+            app=settings.app_name,
+            version=settings.app_version,
+            environment=settings.environment,
+        )
+
+    # Dependency Readiness Health Check Probe
+    @application.get(
+        "/health/ready",
+        response_model=ReadinessCheckResponse,
+        tags=["Health & Diagnostics"],
+        summary="Dependency Readiness Probe",
+        description=(
+            "Verifies external database (PostgreSQL) and cache (Redis) connectivity. "
+            "Returns HTTP 200 if all dependencies respond, or HTTP 503 if any dependency fails."
+        ),
+        responses={
+            status.HTTP_200_OK: {"model": ReadinessCheckResponse},
+            status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ReadinessCheckResponse},
+        },
+    )
+    async def readiness_probe(response: Response) -> ReadinessCheckResponse:
+        db_healthy = await check_database_health(timeout_seconds=2.0)
+        redis_healthy = await check_redis_health(timeout_seconds=2.0)
+
+        is_ready = db_healthy and redis_healthy
+        if not is_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return ReadinessCheckResponse(
+            status="ready" if is_ready else "not_ready",
+            database="connected" if db_healthy else "unreachable",
+            redis="connected" if redis_healthy else "unreachable",
             app=settings.app_name,
             version=settings.app_version,
             environment=settings.environment,

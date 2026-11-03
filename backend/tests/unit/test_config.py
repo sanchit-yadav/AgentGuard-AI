@@ -70,10 +70,14 @@ def test_invalid_log_level_fails_validation() -> None:
 def test_production_enforces_secure_secret_key() -> None:
     """Verify that production rejects default or short secret keys."""
     # Default insecure key should fail
-    with pytest.raises(ValidationError, match="requires a secure, non-default SECRET_KEY"):
+    with pytest.raises(
+        ValidationError, match="requires a secure, non-default SECRET_KEY"
+    ):
         Settings(
             environment="production",
-            secret_key=SecretStr("insecure-dev-secret-key-change-in-production-1234567890"),
+            secret_key=SecretStr(
+                "insecure-dev-secret-key-change-in-production-1234567890"
+            ),
         )
 
     # Short key should fail
@@ -86,7 +90,9 @@ def test_production_enforces_secure_secret_key() -> None:
 
 def test_production_enforces_debug_disabled() -> None:
     """Verify that production rejects debug=True."""
-    with pytest.raises(ValidationError, match="Debug mode must be disabled in production"):
+    with pytest.raises(
+        ValidationError, match="Debug mode must be disabled in production"
+    ):
         Settings(
             environment="production",
             secret_key=SecretStr("a" * 40),
