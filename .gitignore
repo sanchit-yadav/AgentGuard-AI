@@ -79,3 +79,13 @@ celerybeat.pid
 logs/
 tmp/
 temp/
+
+# Interview Preparation & QA Documentation (Private / Not on GitHub)
+docs/INTERVIEW_QA_BANK.md
+*interview*qa*
+*interview*QA*
+*INTERVIEW*QA*
+*Interview*QA*
+docs/*interview*
+docs/*Interview*
+docs/*INTERVIEW*
