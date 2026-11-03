@@ -45,6 +45,20 @@
 
 ---
 
+### Q1.4: How do you guarantee reproducibility in AI agent evaluation across time and model updates?
+* **Detailed Answer:**
+  Evaluation reproducibility requires eliminating all uncontrolled sources of variance:
+  1. **Pinned Model Snapshots:** Never use moving model alias pointers (like `gpt-4o` or `claude-3-sonnet`). Always specify immutable snapshot identifiers (e.g., `gpt-4o-2024-08-06`).
+  2. **Deterministic Sampling Parameters:** Enforce `temperature = 0.0`, fixed random seeds (e.g., `seed = 42`), and deterministic token caps on evaluator inferences.
+  3. **Versioned Evaluation Rubrics:** Track rubric versions in database records (e.g., `rubric_v2.1`) so changes to evaluation prompts do not invalidate past scores.
+  4. **Immutable Agent Snapshots:** Capture system prompts, model configs, and registered tool schemas into immutable `agent_versions` records with frozen `tools_snapshot` JSONB.
+  5. **Verifiable Event Citations:** Store structured citations referencing specific trace event indices (`event_index: 2`) and exact string excerpts, rather than relying on ephemeral hidden chain-of-thought tokens.
+* **Practical AgentGuard AI Example:**
+  Every evaluation record in `evaluations` stores `evaluator_version`, `rubric_version`, `llm_model`, `generation_parameters`, and `structured_evidence`, ensuring audits can reproduce the evaluation logic identically.
+* **Relevant Project Module:** `backend/app/engines/evaluators/base.py` & `models/evaluation.py`
+
+---
+
 ## 🔒 Category 2: Security & Threat Modeling
 
 ### Q2.1: What is Server-Side Request Forgery (SSRF), and how do you protect an application that must connect to arbitrary customer URLs?
@@ -72,6 +86,21 @@
 * **Practical AgentGuard AI Example:**
   AgentGuard wraps trace events in XML boundaries and requires the judge to output a strict Pydantic model (`pass: bool`, `confidence: float`, `reasoning: str`).
 * **Relevant Project Module:** `backend/app/engines/evaluators/llm_judge.py`
+
+---
+
+### Q2.3: How do you isolate mock tool execution so that black-box agents undergoing evaluation cannot trigger destructive mutations in production?
+* **Detailed Answer:**
+  When testing autonomous agents equipped with tools like `create_refund` or `delete_account`, an agent that executes tools by making internal HTTP requests could accidentally trigger mutations in live production if misconfigured.
+  **Architectural Isolation Strategy:**
+  1. **Scoped Reverse Callback Proxy:** Provide a dedicated mock tool gateway (`POST /mock-gateway/{execution_id}/tools/{tool_name}`) that only resolves mock requests.
+  2. **Ephemeral Cryptographic Capability Tokens:** The test runner issues a short-lived HMAC token (`X-Mock-Execution-Token`) valid strictly for that `execution_id` and bounded by `timeout_seconds`.
+  3. **Execution Tool Allowlists & Forbidden Flags:** Reject any tool not declared in the scenario's allowed tools list with `403 Forbidden`. If a forbidden tool is called, fail the test immediately.
+  4. **In-Memory Fixtures:** The gateway reads purely from static scenario fixtures (`mock_environment_fixtures`).
+  5. **Air-Gapped Gateway:** The mock gateway contains zero outbound network drivers, physically preventing requests from hitting external internet APIs.
+* **Practical AgentGuard AI Example:**
+  In the Customer Support Agent benchmark, calling `create_refund` executes inside `MockToolGateway` against the test case's mock order data. No live payment gateway or bank webhook is ever invoked.
+* **Relevant Project Module:** `backend/app/engines/mock_tools/` & `api/v1/mock_gateway.py`
 
 ---
 

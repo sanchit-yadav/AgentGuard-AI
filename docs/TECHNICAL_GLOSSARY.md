@@ -52,6 +52,9 @@ An automated diagnostic process that traverses the execution trace of a failed t
 ### Regression Testing in GenAI
 The process of executing a standardized benchmark suite against new versions of an agent (after modifying system prompts, switching LLM providers, or altering tool schemas) to ensure previously passing capabilities have not broken.
 
+### Evaluation Reproducibility & Auditability
+The architectural requirement that an evaluation verdict can be independently reproduced and verified at any point in the future. Achieved by pinning the exact code version of the evaluator, rubric version, explicit LLM model snapshot identifier (e.g., `gpt-4o-2024-08-06`), temperature (0.0), seed, and storing verifiable event citations rather than relying on unpinned, moving model aliases or ephemeral hidden chain-of-thought states.
+
 ---
 
 ## 3. Systems & Security Concepts
@@ -66,6 +69,14 @@ A technique where an attacker's DNS server initially returns a benign public IP 
 
 ### AES-256-GCM (Authenticated Encryption)
 A symmetric block cipher providing both confidentiality and integrity verification. AgentGuard AI uses AES-256-GCM to encrypt agent API tokens at rest, ensuring that tampering or corruption is detected via an authentication tag.
+
+### Ephemeral Capability Token
+A short-lived, cryptographically signed token (such as HMAC-SHA256) granting access exclusively to a single operation for a bounded time window.
+* *Example in AgentGuard AI:* When an agent executes tools internally, the mock tool gateway validates an ephemeral `X-Mock-Execution-Token` scoped strictly to that `test_execution_id` and expiring when the test timeout elapses.
+
+### Immutable Version Snapshot
+A design pattern where an entity's configuration state is frozen at the moment of execution.
+* *Example in AgentGuard AI:* `agent_versions` captures a snapshot of prompts, model configs, and registered tool schemas (`tools_snapshot`). Modifying an agent prompt or tool forces the creation of a new version, guaranteeing that historical test results are never corrupted by future edits.
 
 ### Modular Monolith
 A software architecture style where an entire application is packaged and deployed as a single runtime service, but internally enforces strict boundaries, decoupled domain modules, and clear dependency hierarchies.

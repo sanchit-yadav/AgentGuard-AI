@@ -37,21 +37,85 @@ flowchart LR
 
 ---
 
-### ⚪ Phase 1: Backend Core, Database Infrastructure & Domain Models
-* **Objective:** Establish the FastAPI application scaffolding, PostgreSQL database with async SQLAlchemy 2.0, Alembic migrations, Redis client, and domain models.
-* **Dependencies:** Phase 0 approval.
-* **Key Tasks:**
-  1. Initialize Python virtual environment with `pyproject.toml` (FastAPI, SQLAlchemy, asyncpg, Alembic, Pydantic v2, Redis).
-  2. Implement configuration manager using Pydantic Settings.
-  3. Implement database connection manager (`AsyncEngine`, `async_sessionmaker`).
-  4. Implement declarative ORM models (`User`, `Organization`, `Project`, `Agent`, `AgentVersion`, `AgentCredential`, `AgentTool`, `TestSuite`, `TestCase`, `TestRun`, `TestExecution`, `ExecutionTrace`, `ExecutionEvent`, `Evaluation`).
-  5. Generate and execute initial Alembic migration.
-  6. Implement authentication, JWT handling, and password hashing (`bcrypt`).
-  7. Implement core CRUD repositories and API routes for Auth, Organizations, Projects, and Agents.
-* **Acceptance Criteria:**
-  * `pytest` integration tests pass against test PostgreSQL database.
-  * Alembic migration cleanly upgrades and downgrades schema without error.
-  * API endpoints return structured Pydantic responses with OpenAPI docs at `/docs`.
+### ⚪ Phase 1: Backend Foundation, Database Infrastructure & Multi-Tenant Agent Registry
+* **Overall Phase Objective:** Establish the production-grade FastAPI application foundation, PostgreSQL database with async SQLAlchemy 2.0, Alembic migrations, Redis client, multi-tenant RBAC, and immutable agent registration API with AES-256-GCM credential encryption.
+* **Dependencies:** Phase 0 architecture approval.
+* **Granular Milestone Breakdown:**
+
+#### Milestone 1.1: Project Infrastructure & Core Configuration
+* **Objective:** Establish package management, environment validation, logging, and application factory.
+* **Files / Modules Involved:**
+  * `backend/pyproject.toml`
+  * `backend/app/core/config.py` (Pydantic Settings)
+  * `backend/app/core/logging.py` (Structured JSON logging)
+  * `backend/app/main.py` (FastAPI factory & lifespan)
+* **Dependencies:** Python 3.11+ runtime.
+* **Implementation Scope:** Parse and validate all `.env` variables (Postgres, Redis, JWT secret, encryption keys). Configure CORS, exception handlers, and structured logging.
+* **Tests Required:** Unit tests verifying config loading, missing variable rejection, and default value fallbacks.
+* **Acceptance Criteria:** `pytest tests/unit/test_config.py` passes 100%; FastAPI boots cleanly and serves `GET /health`.
+
+#### Milestone 1.2: Database Connection & Asynchronous Engine
+* **Objective:** Establish robust, pooled PostgreSQL async connectivity and Redis client bindings.
+* **Files / Modules Involved:**
+  * `backend/app/core/database.py` (`create_async_engine`, `async_sessionmaker`, session dependency)
+  * `backend/app/core/redis.py` (Redis connection pool)
+  * `backend/app/models/base.py` (`DeclarativeBase`, `UUIDPrimaryKeyMixin`, `TimestampMixin`)
+* **Dependencies:** Milestone 1.1.
+* **Implementation Scope:** Asyncpg connection pool configuration with overflow and health checks. Base declarative class with automatic `id`, `created_at`, `updated_at`.
+* **Tests Required:** Test database connection fixture, session rollback verification, Redis ping probe test.
+* **Acceptance Criteria:** Automated integration tests confirm async sessions correctly commit and rollback transactions.
+
+#### Milestone 1.3: Declarative ORM Models & Alembic Migrations
+* **Objective:** Define strongly typed SQLAlchemy 2.0 models and validate schema migration scripts.
+* **Files / Modules Involved:**
+  * `backend/app/models/user.py` (`User`, `Organization`, `OrganizationMember`)
+  * `backend/app/models/project.py` (`Project`)
+  * `backend/app/models/agent.py` (`Agent`, `AgentVersion`, `AgentCredential`, `AgentTool`)
+  * `backend/app/models/test_suite.py` (`TestSuite`, `TestCase`)
+  * `backend/app/models/test_run.py` (`TestRun`, `TestExecution`)
+  * `backend/app/models/trace.py` (`ExecutionTrace`, `ExecutionEvent`)
+  * `backend/app/models/evaluation.py` (`Evaluation`, `EvaluationMetric`, `SecurityFinding`)
+  * `backend/alembic/` (Migration environment and initial version script)
+* **Dependencies:** Milestone 1.2.
+* **Implementation Scope:** Map all approved tables, foreign key cascades, JSONB columns, and B-Tree/GIN indexes. Generate initial migration.
+* **Tests Required:** Schema round-trip migration test: `alembic upgrade head` followed by `alembic downgrade base` and re-upgrade.
+* **Acceptance Criteria:** Alembic cleanly creates all tables in PostgreSQL with zero warnings or foreign key errors.
+
+#### Milestone 1.4: Authentication, RBAC & Multi-Tenant Authorization Middleware
+* **Objective:** Implement secure user registration, login, JWT token issuance, and organization-scoped authorization dependencies.
+* **Files / Modules Involved:**
+  * `backend/app/core/security.py` (Password hashing via `bcrypt`, JWT encode/decode)
+  * `backend/app/schemas/user.py` (Pydantic signup, login, token schemas)
+  * `backend/app/repositories/user_repo.py`, `org_repo.py`
+  * `backend/app/api/deps.py` (`get_current_user`, `get_current_org_context`, `verify_project_access`)
+  * `backend/app/api/v1/auth.py` (`POST /register`, `POST /login`, `GET /me`)
+* **Dependencies:** Milestone 1.3.
+* **Implementation Scope:** Complete user onboarding, organization creation, password hashing, and composite tenant lookup logic.
+* **Tests Required:** Unit tests for password hashing; integration tests for user registration, token expiration, and cross-tenant access rejection (`404 Not Found`).
+* **Acceptance Criteria:** Unauthenticated or cross-tenant requests are denied; authenticated users receive valid scoped JWTs.
+
+#### Milestone 1.5: Project Management & Immutable Agent Registration API
+* **Objective:** Implement project workspace CRUD, immutable agent registration, version snapshotting, and AES-256-GCM credential encryption.
+* **Files / Modules Involved:**
+  * `backend/app/core/security.py` (`encrypt_credential`, `decrypt_credential` via AES-256-GCM)
+  * `backend/app/schemas/agent.py`, `project.py`
+  * `backend/app/repositories/project_repo.py`, `agent_repo.py`
+  * `backend/app/services/agent_service.py`
+  * `backend/app/api/v1/projects.py`, `agents.py`
+* **Dependencies:** Milestone 1.4.
+* **Implementation Scope:** Endpoints for creating projects, registering agents with their initial `agent_version` and `tools_snapshot`, and adding new versions. Encrypting credentials at rest with `os.urandom(12)` nonces and `key_id`.
+* **Tests Required:** Integration tests verifying agent registration, credential encryption at rest in PostgreSQL, version immutability flag enforcement, and tool snapshot retention.
+* **Acceptance Criteria:** Stored credentials are encrypted at rest; modifying an agent creates a new immutable version record; API responses mask secrets.
+
+#### Milestone 1.6: Egress Security Specification & Phase 1 Quality Gate
+* **Objective:** Implement the `SafeAsyncClient` with dual-stack DNS pre-flight filtering, CIDR blacklisting, socket pinning, and response caps, and execute full Phase 1 test suite.
+* **Files / Modules Involved:**
+  * `backend/app/engines/agent_connector/egress_guard.py` (`SafeAsyncClient`)
+  * `tests/integration/` (Full suite)
+* **Dependencies:** Milestones 1.1 – 1.5.
+* **Implementation Scope:** Outbound HTTP client rejecting loopback, private RFC 1918, and metadata IPs (IPv4 & IPv6), with DNS pinning.
+* **Tests Required:** Unit tests probing `127.0.0.1`, `169.254.169.254`, `::1`, and private subnets, verifying instant rejection.
+* **Acceptance Criteria:** All Phase 1 tests pass (`pytest -v`), code passes `ruff check` and `mypy --strict`, OpenAPI documentation is complete at `/docs`.
 
 ---
 

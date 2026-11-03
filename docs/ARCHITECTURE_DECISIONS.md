@@ -18,6 +18,8 @@
 | **ADR-005** | Cascading Multi-Tier Evaluation: Deterministic Fast-Fail + LLM-as-a-Judge | Accepted | 2026-11-02 |
 | **ADR-006** | Egress SSRF Defense via Pre-Flight DNS Pinning & AES-256-GCM Encryption | Accepted | 2026-11-02 |
 | **ADR-007** | Frontend Stack: Next.js 14 App Router with TanStack Query & shadcn/ui | Accepted | 2026-11-02 |
+| **ADR-008** | Immutable Agent Versioning via Configuration & Tool Snapshots | Accepted | 2026-11-03 |
+| **ADR-009** | Scoped Mock Tool Gateway with Ephemeral Capability Tokens | Accepted | 2026-11-03 |
 
 ---
 
@@ -164,3 +166,44 @@ The user interface must render complex data: real-time test run progress, multi-
 ### Consequences
 * **Positive:** Clean enterprise UX; robust polling and cache invalidation; accessible component library.
 * **Negative:** Developers must understand React Server Component (RSC) vs Client Component boundaries.
+
+---
+
+## ADR-008: Immutable Agent Versioning via Configuration & Tool Snapshots
+
+### Status: Accepted
+### Context
+AI agents evolve constantly through prompt engineering, model upgrades, and tool schema additions. If an agent's configuration is modified in-place, past test runs become un-reproducible and audit trails become invalid. We need a versioning mechanism that ensures 100% reproducibility of historical test evaluations.
+
+### Considered Alternatives
+1. **Mutable In-Place Updates:** Directly update `agents` and `agent_tools` table records. (Destroys auditability; past test runs cannot be re-verified).
+2. **Event Sourcing for Configuration:** Store every keystroke and change as an event log. (High complexity for simple configuration states).
+3. **Immutable Snapshot Versioning (`agent_versions` with `tools_snapshot`):** Every test run binds to a frozen version record. Once executed, `is_immutable = true`. Modifying prompt, model parameters, or tool schemas creates a new version record.
+
+### Decision Outcome
+**Chosen Option: Immutable Snapshot Versioning (`agent_versions`).**
+* **Rationale:** By freezing the system prompt, model configuration, endpoint URL, auth type, and complete tool definitions (`tools_snapshot` JSONB) into an immutable record, any test run can be audited or re-run against the exact agent state that existed when the test was conducted.
+
+### Consequences
+* **Positive:** Absolute audit reproducibility; transparent regression diffing between version tags (e.g., `v1.0.0` vs `v1.1.0`); zero risk of retroactive data corruption.
+* **Negative:** Requires creating new version records whenever prompts or tools are modified.
+
+---
+
+## ADR-009: Scoped Mock Tool Gateway with Ephemeral Capability Tokens
+
+### Status: Accepted
+### Context
+When testing autonomous AI agents, agents may execute external tools that mutate real-world systems (e.g., creating a refund on Stripe, dispatching emails, deleting database records). Even in testing, if an agent uses an internal HTTP client rather than client-side tool calling, it could accidentally trigger real side effects if not securely intercepted.
+
+### Considered Alternatives
+1. **Require Agent Developers to Write Test Flags:** Require users to implement `if is_test: do_mock()` in their own agent code. (Error-prone; developers forget or leak test flags).
+2. **Reverse Proxy Mock Gateway with Ephemeral Tokens:** Provide a scoped mock tool endpoint (`POST /mock-gateway/{execution_id}/tools/{tool_name}`) authenticated by a short-lived HMAC capability token, reading strictly from test case fixtures with zero outbound network egress.
+
+### Decision Outcome
+**Chosen Option: Scoped Mock Tool Gateway with Ephemeral Capability Tokens.**
+* **Rationale:** Guarantees that agent tool calls hit an isolated, air-gapped test environment. The HMAC capability token restricts access to the lifespan of that specific test execution. Tool allowlists and forbidden operation checks catch unauthorized actions instantly. Zero outbound network egress in the gateway physically prevents accidental production mutations.
+
+### Consequences
+* **Positive:** Absolute safety against accidental production side effects; automatic latency simulation and fixture injection; granular trace logging.
+* **Negative:** For agents executing tools internally, their tool base URLs must be configured to point to AgentGuard's mock gateway.

@@ -110,18 +110,156 @@ flowchart TD
 * **Concurrency Model:** Celery worker processes with `gevent` or `prefork` pools, preventing long-running agent timeouts from blocking internal operations.
 * **Task Idempotency:** Each test execution task accepts an `execution_id` and tracks its state (`PENDING`, `RUNNING`, `EVALUATING`, `COMPLETED`, `FAILED`, `TIMEOUT`) in PostgreSQL.
 
-### 2.4 Agent Connectivity & Mock Tool Gateway
-A critical architectural challenge when testing black-box AI agents over HTTP is intercepting and validating tool calls without modifying the agent's core reasoning code.
+### 2.4 Agent Integration Contract & Mock Tool Gateway
 
-AgentGuard AI solves this via two interoperable topologies:
-1. **Interactive Client Harness (Standard Agent Protocol / OpenAI Compatible):**
-   * AgentGuard acts as the client. It sends a message to the agent endpoint: `POST /chat` with `{"messages": [{"role": "user", "content": "Where is my order #123?"}]}`.
-   * If the agent decides to invoke a tool, it responds with: `{"role": "assistant", "tool_calls": [{"id": "call_1", "function": {"name": "get_order_details", "arguments": "{\"order_id\": \"123\"}"}}]}`.
-   * AgentGuard intercepts the tool call, writes an `execution_event` to the trace, passes arguments through schema validation, fetches mock data from the configured test scenario mock environment, and sends the tool output back: `{"role": "tool", "tool_call_id": "call_1", "content": "{\"status\": \"SHIPPED\", \"carrier\": \"FedEx\"}"}`.
-   * The conversation continues until the agent delivers a terminal natural language response.
-2. **Mock Tool Gateway (Reverse Callback Proxy):**
-   * For agents that execute tools internally by calling HTTP endpoints, AgentGuard exposes a secure, scoped mock gateway: `http://agentguard:8000/mock/tools/{execution_id}/{tool_name}`.
-   * When the agent invokes this endpoint, AgentGuard records the exact payload, validates the arguments, and returns the synthetic scenario data.
+#### 2.4.1 Supported Agent Integration Contract (MVP Specification)
+> **Engineering Scope & Boundary:** AgentGuard AI does **not** claim universal compatibility with arbitrary, unstandardized AI agent endpoints. For the MVP, AgentGuard AI strictly supports agents conforming to the **OpenAI-Compatible Turn-Based Tool Protocol** or agents configured to route tool executions through the **AgentGuard Scoped Mock Tool Gateway**.
+
+##### A. Supported Outbound HTTP Request Format
+AgentGuard AI dispatches conversational turns to the registered `endpoint_url` using an HTTP `POST` request with a JSON body adhering to the industry-standard chat completions format:
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Where is my order ORD-1042?"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_order_details",
+        "description": "Fetch order status, items, carrier, and tracking information.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "order_id": {
+              "type": "string",
+              "description": "The unique order identifier"
+            }
+          },
+          "required": ["order_id"]
+        }
+      }
+    }
+  ],
+  "stream": false,
+  "temperature": 0.0
+}
+```
+
+##### B. Supported Agent Response Format
+The agent must return an HTTP `200 OK` with a JSON payload in one of two states:
+1. **Tool Invocation Requested (Non-Terminal):**
+```json
+{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_ord_98765",
+      "type": "function",
+      "function": {
+        "name": "get_order_details",
+        "arguments": "{\"order_id\": \"ORD-1042\"}"
+      }
+    }
+  ]
+}
+```
+2. **Terminal Natural Language Response:**
+```json
+{
+  "role": "assistant",
+  "content": "Your order ORD-1042 has shipped via FedEx with tracking number TRK987654.",
+  "tool_calls": null
+}
+```
+
+##### C. Tool Call Interception & Result Return
+When the agent responds with `tool_calls`:
+1. AgentGuard's execution engine pauses model execution and writes an `execution_event` (`TOOL_CALL_INVOKED`) containing the tool name, parsed JSON arguments, and execution timestamp.
+2. The arguments are validated against the tool's registered JSON Schema in Tier 1 evaluation.
+3. The mock tool engine retrieves the synthetic return fixture configured for this test case.
+4. AgentGuard sends the subsequent HTTP `POST` request with the accumulated conversation history and the tool result:
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Where is my order ORD-1042?"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_ord_98765",
+          "type": "function",
+          "function": {
+            "name": "get_order_details",
+            "arguments": "{\"order_id\": \"ORD-1042\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_ord_98765",
+      "name": "get_order_details",
+      "content": "{\"order_id\": \"ORD-1042\", \"status\": \"SHIPPED\", \"carrier\": \"FedEx\", \"tracking_number\": \"TRK987654\"}"
+    }
+  ],
+  "stream": false
+}
+```
+
+##### D. Internal Tool Execution (Reverse Callback Proxy)
+For agents that execute tools internally inside their own service container (rather than asking the client harness to execute them), the agent's external API integration settings must configure its internal tool endpoints to point to AgentGuard's **Scoped Mock Tool Gateway**:
+`POST https://agentguard-host/api/v1/mock-gateway/{test_execution_id}/tools/{tool_name}`
+When the agent calls this endpoint, AgentGuard validates the execution authorization token, logs the parameters, supplies the synthetic test fixture, and records the interaction in the trace.
+
+##### E. Observability Boundary: What Can vs. Cannot Be Observed in Black-Box HTTP Testing
+* **Observable (Captured in Trace):**
+  * Exact HTTP request/response payloads, headers, and status codes.
+  * Turn-by-turn round-trip latency and network duration.
+  * Tool names requested, serialized arguments, and argument formatting errors.
+  * Total tokens and prompt/completion token usage (when exposed via `usage` fields or response headers).
+* **Unobservable (Private Internal State):**
+  * Model internal chain-of-thought or reasoning scratchpads (unless explicitly emitted in public response fields).
+  * In-memory agent state, prompt template resolution code, or local variable states.
+  * Internal retry loops that occur within the agent service before an HTTP response is emitted.
+  * Model weights, logits, or attention activations.
+
+##### F. Future Framework-Specific Adapters (Post-MVP Roadmap)
+Post-MVP phases will introduce dedicated adapters:
+1. **LangGraph / LangServe Adapter:** Consumes LangGraph state snapshots and node transition events over streaming SSE (`text/event-stream`).
+2. **CrewAI / AutoGen Adapter:** Captures multi-agent broadcast chatter and delegation message buses.
+3. **AgentGuard Python SDK (`agentguard-sdk`):** Provides an OpenTelemetry-compatible decorator (`@agentguard.trace`) for users desiring white-box, in-process telemetry.
+
+---
+
+#### 2.4.2 Scoped Mock Tool Gateway Architecture
+To guarantee that testing autonomous agents will **never** trigger unintended mutations in production (e.g., real Stripe refunds or live database deletions), all tool executions are mediated by the Scoped Mock Tool Gateway:
+* **Execution-Specific Authorization:** Every test execution generates a cryptographically signed, short-lived HMAC token (`X-Mock-Execution-Token`). Only requests matching an active `test_execution_id` with a valid token are accepted.
+* **Tool Allowlists:** Each test case explicitly registers allowed tools. Calling an undeclared tool returns HTTP 403 Forbidden and flags an immediate `UNAUTHORIZED_TOOL_INVOCATION` security violation.
+* **Synthetic Fixtures Scoping:** Tool responses are strictly queried from the isolated `mock_environment_fixtures` JSONB structure defined in the `test_case`.
+* **Idempotency & Infinite Loop Protection:** The gateway tracks the invocation count per tool per execution. If a tool call exceeds `max_occurrences` (e.g., repeated identical calls), the gateway terminates the run with a `TIMEOUT_OR_LOOP` fault.
+* **Forbidden Operations Interception:** If a test case defines `forbidden_tool_calls` (e.g., `["create_refund"]`), any invocation attempt immediately aborts execution and marks the test as `FAILED`.
+* **Zero Real-World Side Effects:** The mock gateway executes strictly in-memory within the test runner process. It contains zero network egress capabilities to live third-party APIs.
+
+---
+
+#### 2.4.3 Immutable Agent Versioning Strategy
+To ensure that any historical test run can be audited, reproduced, and verified with 100% fidelity:
+* **Immutable Snapshot:** The `agent_versions` entity represents a frozen point-in-time snapshot containing:
+  * `system_prompt`: Exact text of the prompt used during the run.
+  * `model_config`: Model provider, pinned model identifier (e.g., `gpt-4o-2024-08-06`), temperature, top_p, seeds.
+  * `tools_snapshot`: Complete JSONB array of all registered tool schemas, parameter types, and descriptions at that revision.
+  * `integration_protocol`: Endpoint URL, auth type, headers, and protocol mode.
+  * `evaluation_config`: Default timeout, max turns, and metric thresholds.
+* **Copy-on-Write / Version Immutability:** Once a test run has been executed against an `agent_version_id`, that version is permanently locked (`is_immutable = true`). Any subsequent modification to the system prompt, model settings, endpoint URL, or tool schema automatically creates a new `agent_version` record (e.g., `v1.0.1` or `v1.1.0`). Historical test runs remain permanently pinned to their original version snapshot.
 
 ### 2.5 Security-Guarded Egress Client (SSRF Shield)
 Target agents are hosted on external, customer-controlled URLs. To prevent Server-Side Request Forgery (SSRF):
@@ -168,6 +306,26 @@ flowchart TD
   * Evaluator prompts include few-shot examples and strict evaluation rubrics to eliminate grader drift.
   * Borderline evaluations (confidence < 0.75) are tagged for optional human verification.
 
+#### 2.6.1 Evaluation Reproducibility & Audit Trail
+To ensure evaluation results are legally and technically defensible, reproducible, and verifiable across model iterations:
+* **Required Audit Metadata Recorded per Evaluation:**
+  * `evaluator_name`: Identifier of the evaluator (e.g., `groundedness_judge`).
+  * `evaluator_version`: Semantic code version of the evaluator engine (e.g., `v1.2.0`).
+  * `rubric_version`: Pinned version tag of the evaluation rubric and scoring criteria (e.g., `rubric_customer_support_v2.1`).
+  * `llm_provider`: Underlying AI provider used for evaluation (e.g., `openai`, `anthropic`, `gemini`).
+  * `llm_model`: Explicit, pinned model snapshot identifier (e.g., `gpt-4o-2024-08-06`, **never** an unpinned alias like `gpt-4o`).
+  * `generation_parameters`: Explicit sampling settings (e.g., `{"temperature": 0.0, "seed": 42, "max_tokens": 1200}`).
+  * `confidence_score`: Float between `0.0` and `1.0` indicating evaluator certainty.
+  * `structured_evidence`: Array of verifiable citations linking directly to trace event indices and verbatim text quotes.
+  * `execution_latency_ms`: Time taken by the evaluator in milliseconds.
+  * `token_usage`: Prompt tokens, completion tokens, and total tokens consumed.
+  * `estimated_cost_usd`: Exact dollar cost calculated from provider token pricing.
+* **Prohibition on Private Chain-of-Thought Storage:**
+  * In compliance with enterprise security and LLM provider terms of service, AgentGuard AI **never** stores private, hidden chain-of-thought tokens from black-box LLMs.
+  * Evaluators must produce concise, structured reasoning paragraphs and direct citation evidence instead.
+
+---
+
 ### 2.7 Automated Root Cause Analysis (RCA) Engine
 When an execution fails, developers need immediate diagnostic clarity. The RCA Engine processes the trace events through a rule-based decision tree:
 
@@ -178,6 +336,36 @@ When an execution fails, developers need immediate diagnostic clarity. The RCA E
 5. **Security Breach:** Agent executed a tool or exposed instructions in response to a prompt injection attack.
 
 The RCA engine generates a concise diagnostic markdown report with pointers to exact trace event IDs.
+
+---
+
+### 2.8 Multi-Tenant Isolation & Authorization Architecture
+
+AgentGuard AI enforces absolute organization-level data isolation across all API endpoints, repositories, and worker tasks:
+
+```mermaid
+flowchart TD
+    Request["Incoming API Request"] --> JWT["Verify User JWT & Active Status"]
+    JWT --> OrgContext["Resolve Organization Context (organization_members)"]
+    OrgContext --> ProjectScope["FastAPI Dependency: verify_project_access(project_id, org_id)"]
+    ProjectScope -->|Unauthorized| Reject["Raise HTTP 404 Not Found (Prevent ID Enumeration)"]
+    ProjectScope -->|Authorized| Repo["Execute Repository Query with Mandatory (project_id, org_id) Filter"]
+    Repo --> DB[("PostgreSQL DB (Tenant-Scoped Data Access)")]
+```
+
+#### Multi-Tenant Security Rules
+1. **Mandatory Tenant Context:** All projects belong to an `organization_id`. All agents, test suites, test runs, traces, and reports belong to a `project_id`.
+2. **FastAPI Authorization Dependencies:** Every route handler requires dependency injection (`get_current_org_context`, `verify_project_access`) verifying that the authenticated user holds an active role (`OWNER`, `ADMIN`, `MEMBER`, or `VIEWER`) in the organization owning the target project.
+3. **Defense-in-Depth Query Filtering:** Repositories never execute queries by entity ID alone. All lookups enforce composite tenant criteria:
+   ```python
+   # Mandatory pattern:
+   stmt = (
+       select(TestRun)
+       .join(Project, TestRun.project_id == Project.id)
+       .where(TestRun.id == run_id, Project.organization_id == current_org_id)
+   )
+   ```
+4. **Information Leakage Prevention:** Unauthorized cross-tenant access attempts return HTTP `404 Not Found` (rather than `403 Forbidden`) to prevent malicious actors from enumerating resource UUIDs across tenants.
 
 ---
 
