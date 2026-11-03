@@ -101,21 +101,80 @@ AgentGuard AI/
 
 ## 🚦 6. Current Development Status
 
-| Phase | Milestone | Status |
-| :--- | :--- | :--- |
-| **Phase 0** | **Product Architecture, Technical Planning & Repo Foundation** | 🟢 **In Progress (Active)** |
-| Phase 1 | Backend Core, Database Models & Environment Setup | ⚪ Pending |
-| Phase 2 | Agent Connector, Mock Tool Engine & Execution Tracing | ⚪ Pending |
-| Phase 3 | Deterministic & LLM-as-a-Judge Evaluation Engines | ⚪ Pending |
-| Phase 4 | Automated Test Generation Engine | ⚪ Pending |
-| Phase 5 | Frontend Dashboard, Trace Explorer & Evaluation Reports | ⚪ Pending |
-| Phase 6 | End-to-End Customer Support Agent Benchmark & MVP Hardening | ⚪ Pending |
+| Phase | Milestone | Focus | Status |
+| :--- | :--- | :--- | :--- |
+| **Phase 0** | Architecture Baseline | Product Architecture, Schemas, Threat Model & ADRs | 🟢 **Complete** |
+| **Phase 1.1** | Backend Core | Project Setup, Config Management, Logging & Health API | 🟢 **Complete** |
+| **Phase 1.2** | Database Engine | Async Engine, Connection Pooling & Base ORM Models | ⚪ Next Up |
+| **Phase 1.3** | Schema Migrations | Declarative ORM Models & Initial Alembic Migration | ⚪ Pending |
+| **Phase 1.4** | Auth & Multi-Tenancy | JWT Session Auth & Multi-Tenant Scoping Middleware | ⚪ Pending |
+| **Phase 1.5** | Agent Registry | Project Management & Immutable Agent Registration API | ⚪ Pending |
+| **Phase 1.6** | Egress Security Shield | SafeAsyncClient (SSRF Protection) & Quality Gate | ⚪ Pending |
 
 ---
 
-## 📖 7. Next Steps
+## 🚀 7. Backend Setup & Quickstart (Milestone 1.1)
 
-Review the architectural blueprints in [`docs/`](file:///c:/Users/ysanc/Desktop/Gen%20Ai%20Projects/AgentGuard%20AI/docs) before beginning Phase 1 implementation:
+### 1. Environment Configuration
+Copy the template environment file:
+```bash
+cp .env.example .env
+```
+
+### 2. Virtual Environment Setup
+Ensure Python 3.11+ is installed. Create and activate a virtual environment:
+```powershell
+# Windows (PowerShell)
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Install Dependencies
+Install runtime and development dependencies in editable mode:
+```powershell
+pip install -e ".[dev]"
+```
+
+### 4. Start Development Server
+Launch the FastAPI development server with Uvicorn:
+```powershell
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 5. Verify Process Liveness Probe
+Query the health endpoint:
+```powershell
+curl http://localhost:8000/health/live
+```
+Expected response:
+```json
+{
+  "status": "alive",
+  "app": "AgentGuard AI",
+  "version": "0.1.0",
+  "environment": "development"
+}
+```
+
+### 6. Run Test Suite & Quality Checks
+Execute the automated test suite, linter, and strict type checker:
+```powershell
+# Run unit tests
+pytest -v
+
+# Run Ruff linter
+ruff check .
+
+# Run MyPy strict type checker
+mypy app tests
+```
+
+---
+
+## 📖 8. Architectural Documentation
+
+Review the architectural blueprints in [`docs/`](file:///c:/Users/ysanc/Desktop/Gen%20Ai%20Projects/AgentGuard%20AI/docs):
 * [`docs/SYSTEM_ARCHITECTURE.md`](file:///c:/Users/ysanc/Desktop/Gen%20Ai%20Projects/AgentGuard%20AI/docs/SYSTEM_ARCHITECTURE.md)
 * [`docs/DATABASE_DESIGN.md`](file:///c:/Users/ysanc/Desktop/Gen%20Ai%20Projects/AgentGuard%20AI/docs/DATABASE_DESIGN.md)
 * [`docs/API_DESIGN.md`](file:///c:/Users/ysanc/Desktop/Gen%20Ai%20Projects/AgentGuard%20AI/docs/API_DESIGN.md)
