@@ -42,42 +42,50 @@ def test_ready_probe_all_healthy_live_services() -> None:
 @pytest.mark.integration
 def test_ready_probe_returns_503_when_database_unreachable() -> None:
     """Verify /health/ready returns HTTP 503 when pointing to an unreachable PostgreSQL port."""
+    from unittest.mock import patch
+
     bad_db_settings = Settings(
         database_url="postgresql+asyncpg://agentguard:wrong@127.0.0.1:5433/agentguard_db",
     )
-    # Reset singleton engine
+    # Reset singletons
     database._engine = None
     database._session_factory = None
 
-    app = create_application(settings=bad_db_settings)
-    try:
-        with TestClient(app) as client:
-            response = client.get("/health/ready")
-            assert response.status_code == 503
-            data = response.json()
-            assert data["status"] == "not_ready"
-            assert data["database"] == "unreachable"
-    finally:
-        database._engine = None
-        database._session_factory = None
+    with patch("app.core.database.get_settings", return_value=bad_db_settings):
+        app = create_application(settings=bad_db_settings)
+        try:
+            with TestClient(app) as client:
+                response = client.get("/health/ready")
+                assert response.status_code == 503
+                data = response.json()
+                assert data["status"] == "not_ready"
+                assert data["database"] == "unreachable"
+                assert data["redis"] == "connected"
+        finally:
+            database._engine = None
+            database._session_factory = None
 
 
 @pytest.mark.integration
 def test_ready_probe_returns_503_when_redis_unreachable() -> None:
     """Verify /health/ready returns HTTP 503 when pointing to an unreachable Redis port."""
+    from unittest.mock import patch
+
     bad_redis_settings = Settings(
         redis_url="redis://127.0.0.1:6380/0",
     )
     # Reset singleton redis pool
     redis._redis_pool = None
 
-    app = create_application(settings=bad_redis_settings)
-    try:
-        with TestClient(app) as client:
-            response = client.get("/health/ready")
-            assert response.status_code == 503
-            data = response.json()
-            assert data["status"] == "not_ready"
-            assert data["redis"] == "unreachable"
-    finally:
-        redis._redis_pool = None
+    with patch("app.core.redis.get_settings", return_value=bad_redis_settings):
+        app = create_application(settings=bad_redis_settings)
+        try:
+            with TestClient(app) as client:
+                response = client.get("/health/ready")
+                assert response.status_code == 503
+                data = response.json()
+                assert data["status"] == "not_ready"
+                assert data["redis"] == "unreachable"
+                assert data["database"] == "connected"
+        finally:
+            redis._redis_pool = None

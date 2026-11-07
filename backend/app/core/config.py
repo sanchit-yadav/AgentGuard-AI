@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # Database Configuration
     database_url: str = Field(
-        default="postgresql+asyncpg://agentguard:agentguard_dev_password@localhost:5432/agentguard_db",
+        default="postgresql+asyncpg://agentguard:agentguard_dev_password@127.0.0.1:5432/agentguard_db",
         description="SQLAlchemy async database connection URL",
     )
     database_pool_size: int = Field(
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
 
     # Redis & Task Queue
     redis_url: str = Field(
-        default="redis://localhost:6379/0",
+        default="redis://127.0.0.1:6379/0",
         description="Redis connection URL for caching and task brokering",
     )
 
