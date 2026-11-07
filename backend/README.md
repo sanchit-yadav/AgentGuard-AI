@@ -6,11 +6,41 @@ Autonomous AI Agent Testing & Evaluation Platform Backend, built with FastAPI, S
 
 * `app/`: Application package.
 * `app/core/`: Configuration, logging, database engine, Redis connection pool, and security foundations.
-* `app/models/`: Declarative base models, dual-tier UUIDv4 mixin, and UTC timestamp audit mixins.
+* `app/models/`: Declarative base models, dual-tier UUIDv4 mixin, UTC timestamp audit mixins, and 15 domain models across 7 modules.
 * `app/main.py`: FastAPI entrypoint, lifespan management, and concurrent health/readiness endpoints.
+* `alembic/`: Alembic database migration environment and migration revisions.
 * `scripts/`: Operational tools and infrastructure verification scripts.
 * `tests/unit/`: Fast, isolated unit test suite (mocked I/O, no running daemon required).
 * `tests/integration/`: Infrastructure integration test suite (targets live PostgreSQL and Redis).
+
+## Domain Entities & Schema Design
+
+AgentGuard AI implements 15 core domain models structured across 7 functional packages (`app/models/`):
+1. **Multi-Tenancy & Access Control (`user.py`):** `Organization`, `User`, `OrganizationMember` (with role-based access control and unique tenant memberships).
+2. **Project Scoping (`project.py`):** `Project` (scoped to organization with unique URL slugs).
+3. **Agent Management (`agent.py`):** `Agent`, `AgentCredential` (1:1 with agent, encrypted payload), `AgentVersion` (immutable configuration snapshots), `AgentTool` (with GIN index on parameters schema).
+4. **Test Suite Specification (`test_suite.py`):** `TestSuite`, `TestCase` (rich structured scenarios with turns, ordering constraints, forbidden tools, reference facts, assertions, and mock fixtures).
+5. **Test Execution & Batch Runs (`test_run.py`):** `TestRun`, `TestExecution` (execution status, token usage, cost, RCA failure classification with partial index).
+6. **Execution Tracing (`trace.py`):** `ExecutionTrace` (OTel-compliant UUIDv4 trace header), `ExecutionEvent` (append-only chronological events with GIN indexing on payload).
+7. **Evaluation & Reporting (`evaluation.py`):** `Evaluation` (evaluation metadata and confidence), `EvaluationMetric` (sub-metric breakdown), `SecurityFinding` (vulnerability findings and injection evidence), `RegressionResult` (diffs between candidate and base runs), `Report` (exportable summary).
+
+## Database Migrations (Alembic)
+
+Database schema evolution is managed via Alembic using an asynchronous connection runner:
+
+```powershell
+# Apply latest migrations to the database
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# Rollback all migrations to empty base
+alembic downgrade base
+
+# Generate a new auto-detected migration revision
+alembic revision --autogenerate -m "describe_changes"
+```
 
 ## Transaction Management & Domain Service Policy
 
@@ -84,7 +114,7 @@ pytest tests/integration -v
 python scripts/validate_infrastructure.py
 
 # 4. Code quality & type safety
-ruff check app tests scripts
-ruff format --check app tests scripts
-mypy app tests scripts --config-file pyproject.toml
+ruff check app tests alembic scripts
+ruff format --check app tests alembic scripts
+mypy app tests alembic scripts --config-file pyproject.toml
 ```

@@ -70,23 +70,26 @@ flowchart LR
 * **Acceptance Criteria:** Unit tests pass 100% (`49 passed`). Readiness probe handles concurrent evaluation and returns 503 upon dependency downtime. Docker compose bindings restricted to loopback.
 
 #### Milestone 1.3: Declarative ORM Models & Alembic Migrations
-* **Status:** ⚪ **Pending Review & Developer Authorization**
+* **Status:** ✅ **COMPLETED (Verified & Tested)**
 * **Objective:** Define strongly typed SQLAlchemy 2.0 models across all approved product domains and validate schema migration scripts.
-* **Approved Scope Clarity:**
-  * To preserve database integrity and ensure clean foreign key relationships (e.g., from `test_suites` and `agents` to `projects` and `organizations`), the approved scope covers all 7 domain model modules and the Alembic migration environment:
+* **Approved Scope & Implemented Modules:**
+  * All 7 domain model modules and 15 declarative SQLAlchemy 2.0 ORM models inheriting from `Base`, `UUIDPrimaryKeyMixin`, and `TimestampMixin`:
     * `backend/app/models/user.py` (`User`, `Organization`, `OrganizationMember`)
     * `backend/app/models/project.py` (`Project`)
     * `backend/app/models/agent.py` (`Agent`, `AgentVersion`, `AgentCredential`, `AgentTool`)
     * `backend/app/models/test_suite.py` (`TestSuite`, `TestCase`)
     * `backend/app/models/test_run.py` (`TestRun`, `TestExecution`)
     * `backend/app/models/trace.py` (`ExecutionTrace`, `ExecutionEvent`)
-    * `backend/app/models/evaluation.py` (`Evaluation`, `EvaluationMetric`, `SecurityFinding`)
-    * `backend/alembic/` (Alembic environment, `env.py` async runner, and `0001_initial_schema.py`)
+    * `backend/app/models/evaluation.py` (`Evaluation`, `EvaluationMetric`, `SecurityFinding`, `RegressionResult`, `Report`)
+    * `backend/alembic/` (Alembic environment, `alembic.ini`, `env.py` async runner with dynamic Pydantic settings, and baseline migration `d1c30534bbde_initial_schema.py`)
 * **Dependencies:** Milestone 1.2.
-* **Tests Required:** Schema round-trip migration test: `alembic upgrade head` followed by `alembic downgrade base` and re-upgrade. Model constraint and relationship mapping tests.
-* **Acceptance Criteria:** Alembic cleanly creates all tables in PostgreSQL with zero warnings or foreign key errors. Model relationships match `DATABASE_DESIGN.md`.
+* **Tests Implemented & Verified:**
+  * Unit tests: `backend/tests/unit/test_models_domain.py` (57 tests passing).
+  * Integration tests: `backend/tests/integration/test_migrations.py` validating live schema, all 19 domain tables + alembic_version, GIN indexes (`ix_agent_tools_schema`, `ix_execution_events_payload`), partial indexes (`ix_test_executions_failure`), and programmatic downgrade/upgrade round-trip (13 tests passing, total 70 tests).
+* **Acceptance Criteria Met:** Alembic cleanly creates all tables in PostgreSQL with zero warnings or foreign key errors. Model relationships match `DATABASE_DESIGN.md`. All tests pass (`70 passed in 8.16s`), Ruff check/format clean, MyPy strict clean.
 
 #### Milestone 1.4: Authentication, RBAC & Multi-Tenant Authorization Middleware
+* **Status:** ⚪ **Next Up (Pending Review & Developer Authorization)**
 * **Objective:** Implement secure user registration, login, JWT token issuance, and organization-scoped authorization dependencies.
 * **Files / Modules Involved:**
   * `backend/app/core/security.py` (Password hashing via `bcrypt`, JWT encode/decode)

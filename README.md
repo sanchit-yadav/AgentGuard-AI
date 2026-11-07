@@ -142,13 +142,19 @@ Launch local container services with loopback port binding (127.0.0.1):
 docker compose -f ../infrastructure/docker-compose.yml up -d
 ```
 
-### 5. Start Development Server
+### 5. Apply Database Migrations
+Apply declarative schema migrations using Alembic:
+```powershell
+alembic upgrade head
+```
+
+### 6. Start Development Server
 Launch the FastAPI development server with Uvicorn:
 ```powershell
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 6. Verify Health & Readiness Diagnostic Probes
+### 7. Verify Health & Readiness Diagnostic Probes
 * **Process Liveness Probe** (evaluates process health without querying dependencies):
   ```powershell
   curl http://localhost:8000/health/live
@@ -180,7 +186,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   ```
   *(Note: Returns HTTP 503 `status: "not_ready"` if PostgreSQL or Redis are stopped).*
 
-### 7. Run Test Suite & Quality Checks
+### 8. Run Test Suite & Quality Checks
 Execute the automated unit tests, integration tests, linter, and strict type checker:
 ```powershell
 # Run isolated unit test suite (no external services needed)
@@ -193,11 +199,11 @@ pytest tests/integration -v
 python scripts/validate_infrastructure.py
 
 # Run Ruff linter and formatter
-ruff check .
-ruff format --check .
+ruff check app tests alembic scripts
+ruff format --check app tests alembic scripts
 
 # Run MyPy strict type checker
-mypy app tests --config-file pyproject.toml
+mypy app tests alembic scripts --config-file pyproject.toml
 ```
 
 ---
