@@ -207,3 +207,46 @@ When testing autonomous AI agents, agents may execute external tools that mutate
 ### Consequences
 * **Positive:** Absolute safety against accidental production side effects; automatic latency simulation and fixture injection; granular trace logging.
 * **Negative:** For agents executing tools internally, their tool base URLs must be configured to point to AgentGuard's mock gateway.
+
+---
+
+## ADR-010: Explicit Business Transaction Boundaries vs. Dependency Auto-Commit
+
+### Status: Accepted
+### Context
+In web frameworks like FastAPI, database sessions are typically provisioned via dependency injection (`get_db()`). An initial approach committed the transaction automatically inside `get_db()` upon return from the route handler. However, this creates several failure modes:
+1. Constraint violations or commit failures surface *after* the endpoint handler finishes and serialization begins, often causing 500 Internal Server Errors where a domain-specific 409 Conflict should have been returned.
+2. Read-only endpoints (`GET`) incur unnecessary transaction commit overhead and write-ahead log (WAL) synchronization.
+3. Multi-repository orchestration within a service cannot cleanly establish a Unit of Work across distributed steps or roll back selectively before triggering compensating actions.
+
+### Considered Alternatives
+1. **Implicit Dependency Commit:** `get_db()` executes `await session.commit()` in a post-yield block.
+2. **Explicit Transaction Management:** `get_db()` manages session creation and guaranteed closure (`finally: await session.close()`). Domain services explicitly control transactions using `async with session.begin():` or `await session.commit()`.
+
+### Decision Outcome
+**Chosen Option: Explicit Transaction Management.**
+* **Rationale:** Enforces clean separation of concerns: dependencies manage resource lifecycles (connection acquisition/closure), while domain services manage business transaction boundaries. Commit errors are caught within the business logic where proper domain exceptions and HTTP error mappings can occur. Read endpoints remain zero-overhead.
+
+### Consequences
+* **Positive:** Explicit transactional clarity, proper error mapping before response dispatch, zero commit overhead on reads, compatibility with multi-step workflows.
+* **Negative:** Mutating service methods must remember to begin/commit transactions explicitly (enforced via unit test fixtures).
+
+---
+
+## ADR-011: Structured Concurrency for Readiness Probes & Isolated Shutdown
+
+### Status: Accepted
+### Context
+Production deployments on Kubernetes or AWS ECS require independent liveness (`/health/live`) and readiness (`/health/ready`) probes. In Phase 1.2, `/health/ready` sequentially probed PostgreSQL and Redis. If both services were unresponsive, probe latency doubled ($T_{DB} + T_{Redis} \ge 4.0\text{s}$), exceeding standard orchestrator probe timeouts (typically 2-3s). Furthermore, during server shutdown (`lifespan`), sequential disposal without error isolation meant a failure closing the database engine would crash the shutdown sequence and leave Redis connections unclosed.
+
+### Considered Alternatives
+1. **Sequential Checks & Linear Shutdown:** Probe DB then Redis sequentially; dispose DB then Redis sequentially. (Vulnerable to timeouts and cascading cleanup failures).
+2. **Concurrent Checks & Isolated Shutdown Blocks:** Use `asyncio.gather(..., return_exceptions=True)` to evaluate DB and Redis in parallel, cutting worst-case probe latency to $\max(T_{DB}, T_{Redis})$. Use independent `try/except` blocks during lifespan shutdown so failure to dispose one resource cannot block disposal of the other.
+
+### Decision Outcome
+**Chosen Option: Concurrent Checks & Isolated Shutdown Blocks.**
+* **Rationale:** Guarantees predictable, bounded probe execution time well within Kubernetes timeout windows. Ensures robust cleanup of all resource pools during SIGTERM/SIGINT events without leaking sockets.
+
+### Consequences
+* **Positive:** Halved worst-case readiness latency; resilient, leak-free server shutdown; structured JSON reporting without credential exposure.
+* **Negative:** Requires careful handling of parallel coroutine task exceptions.

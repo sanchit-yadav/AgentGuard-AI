@@ -89,6 +89,9 @@ disallow_untyped_defs = false
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "integration: marks tests requiring live external infrastructure (PostgreSQL, Redis)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",

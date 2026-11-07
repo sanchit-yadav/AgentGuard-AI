@@ -76,16 +76,26 @@ async def close_db() -> None:
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency yielding an asynchronous database session.
+    """FastAPI dependency yielding a managed asynchronous database session.
 
-    Handles transaction commit on successful completion, automatic rollback
-    if an unhandled exception occurs, and guaranteed session closure.
+    Responsibilities:
+    - Session lifecycle management (instantiation and guaranteed closure).
+    - Exception boundary safety: automatically rolls back active uncommitted
+      transactions if an unhandled exception escapes the route handler.
+
+    Explicit Transaction Policy:
+    - This dependency does NOT automatically commit transactions.
+    - Mutating domain services and repositories MUST explicitly manage their
+      transaction boundaries via `async with session.begin():` or explicit
+      `await session.commit()`.
+    - This ensures transaction commit failures (e.g. constraint violations)
+      surface within the business logic before HTTP success responses are sent,
+      and prevents unnecessary COMMIT statements on read-only endpoints.
     """
     factory = get_session_factory()
     async with factory() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise

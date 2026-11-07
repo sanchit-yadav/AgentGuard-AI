@@ -88,8 +88,8 @@ async def test_close_db_noop_when_not_initialized() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_db_commits_and_closes_on_success() -> None:
-    """Verify get_db session dependency commits and closes the session on success."""
+async def test_get_db_yields_session_without_autocommit_and_closes() -> None:
+    """Verify get_db manages session lifecycle without auto-committing business transactions."""
     mock_session = AsyncMock(spec=AsyncSession)
     mock_context = AsyncMock()
     mock_context.__aenter__.return_value = mock_session
@@ -101,7 +101,8 @@ async def test_get_db_commits_and_closes_on_success() -> None:
         async for session in database.get_db():
             assert session is mock_session
 
-        mock_session.commit.assert_awaited_once()
+        # Business commit must NOT be performed by get_db dependency
+        mock_session.commit.assert_not_awaited()
         mock_session.rollback.assert_not_awaited()
         mock_session.close.assert_awaited_once()
 
@@ -127,6 +128,45 @@ async def test_get_db_rolls_back_and_closes_on_error() -> None:
         mock_session.commit.assert_not_awaited()
         mock_session.rollback.assert_awaited_once()
         mock_session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_explicit_transaction_pattern_commits_on_success() -> None:
+    """Verify the documented explicit transaction pattern commits cleanly when no error occurs."""
+    mock_session = AsyncMock(spec=AsyncSession)
+
+    # Simulating a domain service with explicit commit
+    async def mutate_domain_entity(session: AsyncSession) -> dict[str, str]:
+        # Perform explicit business commit
+        await session.commit()
+        return {"status": "created"}
+
+    result = await mutate_domain_entity(mock_session)
+    assert result == {"status": "created"}
+    mock_session.commit.assert_awaited_once()
+    mock_session.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_explicit_transaction_pattern_rolls_back_and_raises() -> None:
+    """Verify the documented explicit transaction pattern rolls back and propagates error."""
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_session.commit.side_effect = RuntimeError(
+        "Unique constraint violation on email"
+    )
+
+    async def mutate_domain_entity(session: AsyncSession) -> None:
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+    with pytest.raises(RuntimeError, match="Unique constraint violation"):
+        await mutate_domain_entity(mock_session)
+
+    mock_session.commit.assert_awaited_once()
+    mock_session.rollback.assert_awaited_once()
 
 
 @pytest.mark.asyncio

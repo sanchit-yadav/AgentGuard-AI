@@ -4,6 +4,7 @@ Initializes application metadata, structured logging, CORS middleware,
 and root health probe endpoints.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -55,8 +56,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     yield
     logger.info("AgentGuard AI backend shutting down: disposing resource pools")
-    await close_db()
-    await close_redis()
+    try:
+        await close_db()
+    except Exception as exc:
+        logger.error(
+            "Failed to cleanly dispose database engine during shutdown",
+            extra={"error_type": type(exc).__name__},
+        )
+
+    try:
+        await close_redis()
+    except Exception as exc:
+        logger.error(
+            "Failed to cleanly disconnect Redis pool during shutdown",
+            extra={"error_type": type(exc).__name__},
+        )
     logger.info("AgentGuard AI backend shutdown complete")
 
 
@@ -119,7 +133,7 @@ def create_application(settings: Settings | None = None) -> FastAPI:
         tags=["Health & Diagnostics"],
         summary="Dependency Readiness Probe",
         description=(
-            "Verifies external database (PostgreSQL) and cache (Redis) connectivity. "
+            "Verifies external database (PostgreSQL) and cache (Redis) connectivity concurrently. "
             "Returns HTTP 200 if all dependencies respond, or HTTP 503 if any dependency fails."
         ),
         responses={
@@ -128,8 +142,12 @@ def create_application(settings: Settings | None = None) -> FastAPI:
         },
     )
     async def readiness_probe(response: Response) -> ReadinessCheckResponse:
-        db_healthy = await check_database_health(timeout_seconds=2.0)
-        redis_healthy = await check_redis_health(timeout_seconds=2.0)
+        db_task = check_database_health(timeout_seconds=2.0)
+        redis_task = check_redis_health(timeout_seconds=2.0)
+        results = await asyncio.gather(db_task, redis_task, return_exceptions=True)
+
+        db_healthy = results[0] is True
+        redis_healthy = results[1] is True
 
         is_ready = db_healthy and redis_healthy
         if not is_ready:

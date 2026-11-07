@@ -160,3 +160,26 @@ def test_lifespan_closes_database_and_redis() -> None:
 
         mock_close_db.assert_awaited_once()
         mock_close_redis.assert_awaited_once()
+
+
+def test_lifespan_continues_redis_cleanup_when_db_fails() -> None:
+    """Verify application lifespan manager executes Redis cleanup even if database disposal throws."""
+    from unittest.mock import AsyncMock, patch
+
+    mock_close_db = AsyncMock(side_effect=RuntimeError("Database disposal failure"))
+    mock_close_redis = AsyncMock()
+
+    with (
+        patch("app.main.close_db", mock_close_db),
+        patch("app.main.close_redis", mock_close_redis),
+    ):
+        test_settings = Settings(
+            secret_key=SecretStr("lifespan-test-secret-key-at-least-32-chars!"),
+            environment="testing",
+        )
+        test_app = create_application(settings=test_settings)
+        with TestClient(test_app):
+            pass
+
+        mock_close_db.assert_awaited_once()
+        mock_close_redis.assert_awaited_once()

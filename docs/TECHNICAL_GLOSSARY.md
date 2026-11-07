@@ -81,3 +81,30 @@ A design pattern where an entity's configuration state is frozen at the moment o
 ### Modular Monolith
 A software architecture style where an entire application is packaged and deployed as a single runtime service, but internally enforces strict boundaries, decoupled domain modules, and clear dependency hierarchies.
 * *Why Chosen for AgentGuard AI:* Provides the simplicity, fast developer iteration, and single-process debugging of a monolith, while preserving clean architectural seams that allow individual engines (such as workers or evaluators) to be extracted into microservices if scale demands.
+
+---
+
+## 4. Backend Infrastructure & Data Engineering Concepts
+
+### Unit of Work & Transaction Boundary
+A design pattern where business transactions maintain a list of database operations affected by a business transaction and coordinate the writing of changes.
+* *In AgentGuard AI:* The dependency `get_db()` provisions an `AsyncSession` and manages connection closure, but does not commit transactions. Mutating domain services explicitly delimit business transactions using `async with session.begin():` or `await session.commit()`. This guarantees commit failures (e.g., integrity constraints) surface inside business logic before responses are dispatched.
+
+### Dual-Tier UUID Generation
+An architecture pattern where both the application ORM and the database engine independently define default UUIDv4 generators.
+* *In AgentGuard AI:* Python-side `default=uuid.uuid4` populates the entity ID in memory upon object instantiation before flushing, enabling immediate use in logging and child entity relationships. Concurrently, PostgreSQL-side `server_default=func.gen_random_uuid()` guarantees that out-of-band direct SQL inserts or migrations receive valid UUIDv4 keys.
+
+### Application-Level vs. Database-Enforced Immutability
+* **Application-Level:** Entity attributes (like primary keys or audit timestamps) are treated as read-only by the application code, with domain models exposing no mutator methods.
+* **Database-Enforced:** Physical constraints or database triggers (`BEFORE UPDATE`) that actively abort any SQL `UPDATE` statement targeting the protected column. Unless a trigger is installed, SQL columns remain mutable at the database layer.
+
+### SQLAlchemy `onupdate` vs. Database Triggers
+* **SQLAlchemy `onupdate`:** A client-side hook executed exclusively within the Python process by the SQLAlchemy ORM during a session flush (`UPDATE table SET updated_at = ... WHERE id = ...`).
+* **Database Trigger:** An in-database stored procedure executed by the PostgreSQL engine on every `UPDATE` statement regardless of caller. SQLAlchemy's `onupdate` is not a substitute for a trigger when raw SQL updates occur outside the ORM.
+
+### Concurrent Health Probes & Thundering Herd Prevention
+* **Concurrent Health Probes:** Executing multiple external dependency checks (PostgreSQL `SELECT 1` and Redis `PING`) in parallel using `asyncio.gather()`, capping total probe execution time to $\max(T_{DB}, T_{Redis})$ rather than cumulative sequential latency.
+* **Liveness vs. Readiness Separation:** Liveness (`/health/live`) determines whether the process is alive; Readiness (`/health/ready`) determines whether dependencies are connected. Coupling readiness checks to liveness probes causes orchestrators (Kubernetes) to restart pods during temporary database blips, causing thundering herds where hundreds of restarting containers simultaneously overwhelm recovering database pools.
+
+### Loopback Port Binding (127.0.0.1 vs 0.0.0.0)
+Binding development server or container ports to `127.0.0.1` ensures that network sockets accept traffic exclusively from the local machine loopback interface, preventing exposed ports from being accessed by other machines on the local area network (LAN) or public network interfaces.

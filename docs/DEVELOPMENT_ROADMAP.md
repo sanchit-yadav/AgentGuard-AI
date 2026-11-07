@@ -55,31 +55,36 @@ flowchart LR
 * **Acceptance Criteria:** `pytest tests/unit/test_config.py` passes 100%; FastAPI boots cleanly and serves `GET /health`.
 
 #### Milestone 1.2: Database Connection & Asynchronous Engine
-* **Objective:** Establish robust, pooled PostgreSQL async connectivity and Redis client bindings.
+* **Status:** 🟢 **Complete (Hardened & Verified)**
+* **Objective:** Establish robust, pooled PostgreSQL async connectivity, Redis client bindings, hardened lifecycle management, and explicit transaction policies.
 * **Files / Modules Involved:**
-  * `backend/app/core/database.py` (`create_async_engine`, `async_sessionmaker`, session dependency)
-  * `backend/app/core/redis.py` (Redis connection pool)
-  * `backend/app/models/base.py` (`DeclarativeBase`, `UUIDPrimaryKeyMixin`, `TimestampMixin`)
+  * `backend/app/core/database.py` (`create_async_engine`, `async_sessionmaker`, `get_db` lifecycle dependency, `check_database_health`, `close_db`)
+  * `backend/app/core/redis.py` (`ConnectionPool`, `Redis`, `get_redis`, `check_redis_health`, `close_redis`)
+  * `backend/app/models/base.py` (`Base`, `UUIDPrimaryKeyMixin` with dual-tier generation, `TimestampMixin` with UTC audit semantics)
+  * `backend/app/main.py` (Concurrent `/health/ready` probe via `asyncio.gather`, resilient shutdown lifecycle)
+  * `infrastructure/docker-compose.yml` (PostgreSQL 16 & Redis 7 bound strictly to `127.0.0.1`)
+  * `backend/scripts/validate_infrastructure.py` (Live infrastructure socket & health check validator)
 * **Dependencies:** Milestone 1.1.
-* **Implementation Scope:** Asyncpg connection pool configuration with overflow and health checks. Base declarative class with automatic `id`, `created_at`, `updated_at`.
-* **Tests Required:** Test database connection fixture, session rollback verification, Redis ping probe test.
-* **Acceptance Criteria:** Automated integration tests confirm async sessions correctly commit and rollback transactions.
+* **Implementation Scope:** Asyncpg connection pool configuration (`pool_size=10`, `max_overflow=5`, `pool_pre_ping=True`). Redis async connection pool (`max_connections=20`). Explicit transaction policy (dependency manages session closure; mutating services control `session.begin()`).
+* **Tests Required:** Unit test suite covering session commit/rollback patterns, redis pool lifecycle, model constraint naming and column defaults, readiness probe concurrency, and lifespan shutdown error isolation. Live integration suite (`backend/tests/integration/`).
+* **Acceptance Criteria:** Unit tests pass 100% (`49 passed`). Readiness probe handles concurrent evaluation and returns 503 upon dependency downtime. Docker compose bindings restricted to loopback.
 
 #### Milestone 1.3: Declarative ORM Models & Alembic Migrations
-* **Objective:** Define strongly typed SQLAlchemy 2.0 models and validate schema migration scripts.
-* **Files / Modules Involved:**
-  * `backend/app/models/user.py` (`User`, `Organization`, `OrganizationMember`)
-  * `backend/app/models/project.py` (`Project`)
-  * `backend/app/models/agent.py` (`Agent`, `AgentVersion`, `AgentCredential`, `AgentTool`)
-  * `backend/app/models/test_suite.py` (`TestSuite`, `TestCase`)
-  * `backend/app/models/test_run.py` (`TestRun`, `TestExecution`)
-  * `backend/app/models/trace.py` (`ExecutionTrace`, `ExecutionEvent`)
-  * `backend/app/models/evaluation.py` (`Evaluation`, `EvaluationMetric`, `SecurityFinding`)
-  * `backend/alembic/` (Migration environment and initial version script)
+* **Status:** ⚪ **Pending Review & Developer Authorization**
+* **Objective:** Define strongly typed SQLAlchemy 2.0 models across all approved product domains and validate schema migration scripts.
+* **Approved Scope Clarity:**
+  * To preserve database integrity and ensure clean foreign key relationships (e.g., from `test_suites` and `agents` to `projects` and `organizations`), the approved scope covers all 7 domain model modules and the Alembic migration environment:
+    * `backend/app/models/user.py` (`User`, `Organization`, `OrganizationMember`)
+    * `backend/app/models/project.py` (`Project`)
+    * `backend/app/models/agent.py` (`Agent`, `AgentVersion`, `AgentCredential`, `AgentTool`)
+    * `backend/app/models/test_suite.py` (`TestSuite`, `TestCase`)
+    * `backend/app/models/test_run.py` (`TestRun`, `TestExecution`)
+    * `backend/app/models/trace.py` (`ExecutionTrace`, `ExecutionEvent`)
+    * `backend/app/models/evaluation.py` (`Evaluation`, `EvaluationMetric`, `SecurityFinding`)
+    * `backend/alembic/` (Alembic environment, `env.py` async runner, and `0001_initial_schema.py`)
 * **Dependencies:** Milestone 1.2.
-* **Implementation Scope:** Map all approved tables, foreign key cascades, JSONB columns, and B-Tree/GIN indexes. Generate initial migration.
-* **Tests Required:** Schema round-trip migration test: `alembic upgrade head` followed by `alembic downgrade base` and re-upgrade.
-* **Acceptance Criteria:** Alembic cleanly creates all tables in PostgreSQL with zero warnings or foreign key errors.
+* **Tests Required:** Schema round-trip migration test: `alembic upgrade head` followed by `alembic downgrade base` and re-upgrade. Model constraint and relationship mapping tests.
+* **Acceptance Criteria:** Alembic cleanly creates all tables in PostgreSQL with zero warnings or foreign key errors. Model relationships match `DATABASE_DESIGN.md`.
 
 #### Milestone 1.4: Authentication, RBAC & Multi-Tenant Authorization Middleware
 * **Objective:** Implement secure user registration, login, JWT token issuance, and organization-scoped authorization dependencies.

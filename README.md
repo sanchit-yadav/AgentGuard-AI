@@ -105,7 +105,7 @@ AgentGuard AI/
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | Architecture Baseline | Product Architecture, Schemas, Threat Model & ADRs | 🟢 **Complete** |
 | **Phase 1.1** | Backend Core | Project Setup, Config Management, Logging & Health API | 🟢 **Complete** |
-| **Phase 1.2** | Database Engine | Async Engine, Connection Pooling & Base ORM Models | ⚪ Next Up |
+| **Phase 1.2** | Database Engine | Async Engine, Redis, Base Models & Hardened Lifecycle | 🟢 **Complete** |
 | **Phase 1.3** | Schema Migrations | Declarative ORM Models & Initial Alembic Migration | ⚪ Pending |
 | **Phase 1.4** | Auth & Multi-Tenancy | JWT Session Auth & Multi-Tenant Scoping Middleware | ⚪ Pending |
 | **Phase 1.5** | Agent Registry | Project Management & Immutable Agent Registration API | ⚪ Pending |
@@ -113,7 +113,7 @@ AgentGuard AI/
 
 ---
 
-## 🚀 7. Backend Setup & Quickstart (Milestone 1.1)
+## 🚀 7. Backend Setup & Quickstart (Milestone 1.2)
 
 ### 1. Environment Configuration
 Copy the template environment file:
@@ -136,38 +136,68 @@ Install runtime and development dependencies in editable mode:
 pip install -e ".[dev]"
 ```
 
-### 4. Start Development Server
+### 4. Start Infrastructure (PostgreSQL & Redis)
+Launch local container services with loopback port binding (127.0.0.1):
+```powershell
+docker compose -f ../infrastructure/docker-compose.yml up -d
+```
+
+### 5. Start Development Server
 Launch the FastAPI development server with Uvicorn:
 ```powershell
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 5. Verify Process Liveness Probe
-Query the health endpoint:
-```powershell
-curl http://localhost:8000/health/live
-```
-Expected response:
-```json
-{
-  "status": "alive",
-  "app": "AgentGuard AI",
-  "version": "0.1.0",
-  "environment": "development"
-}
-```
+### 6. Verify Health & Readiness Diagnostic Probes
+* **Process Liveness Probe** (evaluates process health without querying dependencies):
+  ```powershell
+  curl http://localhost:8000/health/live
+  ```
+  Expected response (HTTP 200):
+  ```json
+  {
+    "status": "alive",
+    "app": "AgentGuard AI",
+    "version": "0.1.0",
+    "environment": "development"
+  }
+  ```
 
-### 6. Run Test Suite & Quality Checks
-Execute the automated test suite, linter, and strict type checker:
-```powershell
-# Run unit tests
-pytest -v
+* **Dependency Readiness Probe** (evaluates PostgreSQL and Redis concurrently):
+  ```powershell
+  curl http://localhost:8000/health/ready
+  ```
+  Expected response when healthy (HTTP 200):
+  ```json
+  {
+    "status": "ready",
+    "database": "connected",
+    "redis": "connected",
+    "app": "AgentGuard AI",
+    "version": "0.1.0",
+    "environment": "development"
+  }
+  ```
+  *(Note: Returns HTTP 503 `status: "not_ready"` if PostgreSQL or Redis are stopped).*
 
-# Run Ruff linter
+### 7. Run Test Suite & Quality Checks
+Execute the automated unit tests, integration tests, linter, and strict type checker:
+```powershell
+# Run isolated unit test suite (no external services needed)
+pytest tests/unit -v
+
+# Run infrastructure integration test suite (requires running containers)
+pytest tests/integration -v
+
+# Run standalone infrastructure validation script
+python scripts/validate_infrastructure.py
+
+# Run Ruff linter and formatter
 ruff check .
+ruff format --check .
 
 # Run MyPy strict type checker
-mypy app tests
+mypy app tests --config-file pyproject.toml
 ```
 
 ---

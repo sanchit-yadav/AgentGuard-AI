@@ -533,6 +533,16 @@ backend/
 * **Extensibility:** Adding a new evaluation metric (e.g., token-cost efficiency) requires adding a class extending `AbstractEvaluator` without touching existing route code.
 * **Worker Reusability:** Celery worker tasks in `workers/` import the exact same domain services used by FastAPI, ensuring absolute consistency in business rules.
 
+### 4.1 Database Infrastructure & Transaction Management Architecture
+* **Connection Lifecycle vs. Transaction Boundaries:** The FastAPI dependency `get_db()` manages session instantiation and guaranteed closure (`finally: await session.close()`). It does NOT auto-commit business transactions upon endpoint return.
+* **Explicit Mutation Policy:** Mutating services and repositories explicitly control their transactional boundaries using `async with session.begin():` (idiomatic SQLAlchemy 2.0) or explicit `await session.commit()`. This guarantees that database commit failures (such as unique constraint or foreign key violations) surface while still inside business logic, allowing translation to structured HTTP 409/422 responses before headers are committed.
+* **Exception Safety:** Unhandled exceptions that escape route handlers trigger an automatic rollback in `get_db()`'s `except Exception:` block prior to session closure.
+* **Dual-Tier UUID Generation:** Models inherit from `UUIDPrimaryKeyMixin`, which provides dual generation: Python-side `default=uuid.uuid4` for immediate in-memory ID access prior to flush, and PostgreSQL `server_default=func.gen_random_uuid()` for raw SQL inserts.
+* **Timestamp Semantics:** `created_at` and `updated_at` are timezone-aware UTC. SQLAlchemy's `onupdate` hook executes during ORM session flushes and is documented as separate from database-level `BEFORE UPDATE` triggers.
+* **Concurrent Diagnostics & Resilient Teardown:**
+  * `GET /health/ready` evaluates PostgreSQL (`SELECT 1`) and Redis (`PING`) concurrently via `asyncio.gather(..., return_exceptions=True)`, bounding probe latency to $\max(T_{DB}, T_{Redis})$ and returning HTTP 503 if either dependency fails.
+  * Application lifespan shutdown isolates database and Redis pool disposals in independent `try/except` blocks, preventing resource cleanup starvation.
+
 ---
 
 ## 5. Frontend Navigation & Screen Architecture

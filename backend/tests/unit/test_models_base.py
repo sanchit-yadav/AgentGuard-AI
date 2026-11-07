@@ -52,11 +52,14 @@ def test_uuid_primary_key_mixin_columns() -> None:
     assert isinstance(id_col.type, UUID)
     assert id_col.type.as_uuid is True
 
-    # Test default generator creates valid UUIDv4
+    # Test dual-tier default: Python-side generator and PostgreSQL server-side default
     assert id_col.default is not None
     generated_uuid = id_col.default.arg(None)
     assert isinstance(generated_uuid, uuid.UUID)
     assert generated_uuid.version == 4
+
+    # Server-side default for SQL-level inserts
+    assert id_col.server_default is not None
 
 
 def test_timestamp_mixin_columns() -> None:
@@ -81,6 +84,12 @@ def test_timestamp_mixin_columns() -> None:
     assert isinstance(now_updated, datetime)
     assert now_created.tzinfo == UTC
     assert now_updated.tzinfo == UTC
+
+    # Verify onupdate hook produces UTC timezone-aware datetimes
+    assert updated_at_col.onupdate is not None
+    now_onupdate = updated_at_col.onupdate.arg(None)
+    assert isinstance(now_onupdate, datetime)
+    assert now_onupdate.tzinfo == UTC
 
 
 def test_model_instantiation_with_explicit_values() -> None:

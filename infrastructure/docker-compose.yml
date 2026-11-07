@@ -3,11 +3,13 @@
 # ==============================================================================
 # Starts local PostgreSQL 16 and Redis containers for local testing and development.
 # Usage:
-#   docker-compose -f infrastructure/docker-compose.yml up -d
-#   docker-compose -f infrastructure/docker-compose.yml down
+#   docker compose -f infrastructure/docker-compose.yml up -d
+#   docker compose -f infrastructure/docker-compose.yml down
 #
-# IMPORTANT: These default credentials are intended exclusively for local development.
-# NEVER use these credentials in staging or production environments.
+# SECURITY NOTICE:
+# - Ports are strictly bound to loopback (127.0.0.1) to prevent LAN/external exposure.
+# - The credentials specified below are strictly for isolated LOCAL DEVELOPMENT.
+# - DO NOT use these default passwords in staging, QA, or production environments!
 
 services:
   postgres:
@@ -19,7 +21,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentguard_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-agentguard_db}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +36,7 @@ services:
     container_name: agentguard-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_dev_data:/data
     healthcheck:

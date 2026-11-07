@@ -31,12 +31,27 @@ class Base(DeclarativeBase):
 
 
 class UUIDPrimaryKeyMixin:
-    """Mixin adding an immutable UUIDv4 primary key column."""
+    """Mixin adding a UUIDv4 primary key column.
+
+    Architecture & Immutability Semantics:
+    - UUID Generation: Employs dual-tier generation. Python-side `default=uuid.uuid4`
+      ensures the entity ID is known in memory immediately upon instantiation
+      before flushing (crucial for domain events, child associations, and logging).
+      PostgreSQL-side `server_default=func.gen_random_uuid()` ensures that direct
+      SQL or external inserts also receive a cryptographically secure UUIDv4.
+    - Primary Key Constraint: Enforces uniqueness and non-nullability, indexed
+      under the deterministic name `pk_<tablename>`.
+    - Immutability: The ID is treated as immutable at the application layer
+      (domain models provide no mutation interfaces for primary keys). Note that
+      SQLAlchemy does not enforce immutability at the physical database layer;
+      preventing out-of-band direct SQL updates would require a database trigger.
+    """
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
         nullable=False,
         sort_order=-100,
         doc="Unique primary key identifier (UUIDv4)",
@@ -44,7 +59,19 @@ class UUIDPrimaryKeyMixin:
 
 
 class TimestampMixin:
-    """Mixin adding timezone-aware created_at and updated_at audit columns."""
+    """Mixin adding timezone-aware created_at and updated_at audit columns.
+
+    Architecture & Update Semantics:
+    - created_at: Recorded in UTC at instantiation time via Python-side
+      `default=lambda: datetime.now(UTC)` and server-side `server_default=func.now()`.
+    - updated_at: Initialized at creation and automatically refreshed during
+      SQLAlchemy ORM session flushes via `onupdate=lambda: datetime.now(UTC)`.
+    - Database Trigger Caveat: SQLAlchemy's `onupdate` hook executes exclusively
+      within the Python ORM runtime when an entity's attributes are modified and
+      flushed. It is NOT equivalent to a PostgreSQL database-level `BEFORE UPDATE`
+      trigger and will NOT automatically fire on direct raw SQL statements
+      (e.g., bulk `UPDATE` statements executed outside the ORM unit-of-work).
+    """
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
